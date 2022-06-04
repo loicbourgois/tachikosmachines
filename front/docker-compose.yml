@@ -1,0 +1,8 @@
+services:
+  front:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - $full_path/../wasm/pkg:/usr/share/nginx/html/wasm:ro
+      - $full_path:/usr/share/nginx/html/front:ro

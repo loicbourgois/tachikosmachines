@@ -1,0 +1,8 @@
+services:
+  wasm:
+    build:
+      context: $DIR
+      dockerfile: $DIR/Dockerfile
+    command: $CONTAINER_DIR/_main.sh
+    volumes:
+      - $DIR:$CONTAINER_DIR:rw
