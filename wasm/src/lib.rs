@@ -51,45 +51,27 @@ type uuid = u32;
 
 
 #[wasm_bindgen]
+#[derive(Debug)]
 pub struct Machine {
     // uuid
     u: uuid,
     // index
     i: usize,
     // previous position
-    pp: Vector,
+    op: Vector,
     // position
     p: Vector,
     // new position
-    np: Vector,
+    pn: Vector,
     // diameter
     d: float,
     // mass
     m: float,
+    // target
+    t: Option<usize>,
+    // has target
+    ht: u32,
 }
-
-
-// pub struct TransformerKind {
-//     // uuid
-//     u: uuid,
-//     // label
-//     l: String,
-//     // text_id
-//     t: String,
-//     // inputs: map(ResourceKind.uuid, quantity)
-//     inputs: HashMap<uuid, float>,
-//     // outputs: map(ResourceKind.uuid, quantity)
-//     outputs: HashMap<uuid, float>
-// }
-
-
-// pub struct Transformer {
-//     // uuid
-//     u: uuid,
-//     // index
-//     i: usize,
-// }
-
 
 
 #[wasm_bindgen]
@@ -117,6 +99,8 @@ pub struct Resource {
     d: float,
     // kind
     k: uuid,
+    // active
+    a: u32,
 }
 
 
@@ -130,12 +114,16 @@ pub struct Universe {
     active_resources: HashMap<uuid, usize>,
     inactive_resources: HashMap<uuid, usize>,
     active_resources_by_kind: HashMap<uuid, HashMap<uuid, usize> >,
+
+    available_resources_by_kind: HashMap<uuid, HashMap<uuid, usize> >,
+
     resource_kinds: HashMap<uuid, ResourceKind>,
     resource_kinds_by_text_id: HashMap<String, uuid>,
     DIAMETER: float,
     CELLS_COUNT_BY_SIDE: usize,
     CELLS_COUNT: usize,
-    cells: Vec<Cell>
+    cells: Vec<Cell>,
+    step: usize,
 }
 
 
@@ -143,6 +131,7 @@ pub struct Universe {
 #[derive(Debug)]
 pub struct Cell {
     active_resources_by_kind: HashMap<uuid, HashMap<uuid, usize> >,
+    available_resources_by_kind: HashMap<uuid, HashMap<uuid, usize> >,
     active_machines: HashMap<uuid, usize>,
     c9s: Vec<usize>,
     cell_id: usize,
@@ -186,15 +175,18 @@ impl Universe {
              active_resources: HashMap::new(),
              active_resources_by_kind: HashMap::new(),
              inactive_resources: HashMap::new(),
+             available_resources_by_kind: HashMap::new(),
              resource_kinds: HashMap::new(),
              resource_kinds_by_text_id: HashMap::new(),
              DIAMETER: 0.01,
              CELLS_COUNT_BY_SIDE: CELLS_COUNT_BY_SIDE,
              CELLS_COUNT: CELLS_COUNT_BY_SIDE*CELLS_COUNT_BY_SIDE,
              cells: Vec::new(),
+             step: 0,
         };
         for cell_id in 0..universe.CELLS_COUNT {
             universe.cells.push(Cell{
+                available_resources_by_kind: HashMap::new(),
                 active_resources_by_kind: HashMap::new(),
                 active_machines: HashMap::new(),
                 c9s: cell_ids_9_3(cell_id, universe.CELLS_COUNT_BY_SIDE),
@@ -210,6 +202,21 @@ impl Universe {
 impl Universe {
     pub fn machines(&self) -> *const Machine {
         self.machines.as_ptr()
+    }
+
+
+    pub fn machines_count(&self) -> usize {
+        self.machines.len()
+    }
+
+
+    pub fn resources(&self) -> *const Resource {
+        self.resources.as_ptr()
+    }
+
+
+    pub fn resources_count(&self) -> usize {
+        self.resources.len()
     }
 
 
@@ -234,11 +241,13 @@ impl Universe {
         self.machines.push(Machine{
             u: u,
             i: i,
-            pp: &args.position - &args.speed,
+            op: &args.position - &args.speed,
             p: args.position,
-            np: args.position,
+            pn: args.position,
             d: self.DIAMETER,
             m: 1.0,
+            t: None,
+            ht: 0,
         });
         self.active_machines.insert(u, i);
         u
@@ -263,27 +272,164 @@ impl Universe {
     ) -> uuid {
         let u = self.new_uuid();
         let i = self.resources.len();
+        let p = Vector{
+            x:x,
+            y:y
+        };
+        let cell_id = cell_id(p, self.CELLS_COUNT_BY_SIDE);
         self.resources.push(Resource{
             u: u,
             i: i,
-            p: Vector{
-                x:x,
-                y:y
-            },
+            p: p,
             d: self.DIAMETER,
             k: kind,
+            a: 1,
         });
         self.active_resources.insert(u, i);
         self.active_resources_by_kind.get_mut(&kind).unwrap().insert(u, i);
+        self.available_resources_by_kind.get_mut(&kind).unwrap().insert(u, i);
+        self.cells.get_mut(cell_id).unwrap().available_resources_by_kind.get_mut(&kind).unwrap().insert(u, i);
         u
     }
 
 
     pub fn delete_resource(&mut self, u: uuid) {
         let i = self.active_resources[&u];
-        self.active_resources_by_kind.get_mut(&self.resources[i].k).unwrap().remove(&u);
+        self.resources[i].a = 0;
+        let resource = &self.resources[i];
+        let cell_id = cell_id(resource.p, self.CELLS_COUNT_BY_SIDE);
+        self.active_resources_by_kind.get_mut(&resource.k).unwrap().remove(&u);
+        self.available_resources_by_kind.get_mut(&resource.k).unwrap().remove(&u);
+        self.cells.get_mut(cell_id).unwrap().available_resources_by_kind.get_mut(&resource.k).unwrap().remove(&u);
         self.active_resources.remove(&u);
         self.inactive_resources.insert(u, i);
+    }
+}
+
+
+pub fn closest_available_resource_all_full_scan(
+    machine: & Machine,
+    resource_kinds: & HashMap<uuid, ResourceKind>,
+    available_resources_by_kind: & HashMap<uuid, HashMap<uuid, usize> >,
+    resources: & Vec<Resource>
+) -> Option<usize> {
+    let mut r = None;
+    let mut d_sqrd_min = f32::INFINITY;
+        for kind_u in resource_kinds.keys() {
+            for (u, i) in available_resources_by_kind[&kind_u].iter() {
+                let resource = & resources[*i];
+                let d_sqrd = distance_squared(&machine.p, &resource.p);
+                if d_sqrd < d_sqrd_min {
+                    d_sqrd_min = d_sqrd;
+                    r = Some(resource.i);
+                }
+            }
+        }
+    r
+}
+
+
+pub fn closest_available_resource_all_c9s(
+    machine: & Machine,
+    resource_kinds: & HashMap<uuid, ResourceKind>,
+    available_resources_by_kind: & HashMap<uuid, HashMap<uuid, usize> >,
+    resources: & Vec<Resource>,
+    CELLS_COUNT_BY_SIDE: usize,
+    cells: &Vec<Cell>,
+) -> Option<usize> {
+    let cell_id = cell_id(machine.p, CELLS_COUNT_BY_SIDE);
+    let c9s = &cells[cell_id].c9s;
+    let mut r = None;
+    let mut d_sqrd_min = f32::INFINITY;
+    for cell_id in c9s {
+        let cell = &cells[*cell_id];
+        for kind_u in resource_kinds.keys() {
+            for i in cell.available_resources_by_kind[&kind_u].values() {
+                let resource = & resources[*i];
+                let d_sqrd = distance_squared(&machine.p, &resource.p);
+                if d_sqrd < d_sqrd_min {
+                    d_sqrd_min = d_sqrd;
+                    r = Some(resource.i);
+                }
+            }
+        }
+    }
+    r
+}
+
+
+
+pub fn find_target(
+    machine: &mut Machine,
+    available_resources_by_kind: &mut HashMap<uuid, HashMap<uuid, usize>>,
+    resource_kinds: & HashMap<uuid, ResourceKind>,
+    resources: & Vec<Resource>,
+    active_resources: & HashMap<uuid, usize>,
+    CELLS_COUNT_BY_SIDE: usize,
+    cells: &mut Vec<Cell>,
+) {
+    machine.t = match closest_available_resource_all_c9s(
+        machine,
+        resource_kinds,
+        available_resources_by_kind,
+        resources,
+        CELLS_COUNT_BY_SIDE,
+        cells,
+    ) {
+        Some(x) => Some(x),
+        None => closest_available_resource_all_full_scan(
+            machine,
+            resource_kinds,
+            available_resources_by_kind,
+            resources,
+        )
+    };
+    match machine.t {
+        Some(r_i) => {
+            let ressource = &resources[r_i];
+            let kind = ressource.k;
+            let cell_id = cell_id(ressource.p, CELLS_COUNT_BY_SIDE);
+            cells.get_mut(cell_id).unwrap().available_resources_by_kind.get_mut(&kind).unwrap().remove(&ressource.u);
+            available_resources_by_kind.get_mut(&kind).unwrap().remove(&ressource.u);
+        }
+        None => {}
+    }
+}
+
+
+pub fn resource_by_u<'a>(
+    resources: &'a Vec<Resource>,
+    active_resources: &'a HashMap<uuid, usize>,
+    resource_u: uuid,
+) -> &'a Resource {
+    &resources[active_resources[&resource_u] ]
+}
+
+
+#[wasm_bindgen]
+impl Universe {
+    pub fn update_targets(&mut self) {
+        for i in self.active_machines.values() {
+            let m1 = &mut self.machines[*i];
+            match m1.t {
+                None => {
+                    find_target(
+                        m1,
+                        &mut self.available_resources_by_kind,
+                        &self.resource_kinds,
+                        &self.resources,
+                        &self.active_resources,
+                        self.CELLS_COUNT_BY_SIDE,
+                        &mut self.cells,
+                    )
+                },
+                Some(_) => {}
+            }
+            m1.ht = match m1.t {
+                Some(_) => 1,
+                None => 0,
+            }
+        }
     }
 }
 
@@ -291,17 +437,49 @@ impl Universe {
 #[wasm_bindgen]
 impl Universe {
     pub fn tick(&mut self) {
+        self.udpate_cells();
         for i in self.active_machines.values() {
             let mut m1 = &mut self.machines[*i];
-            m1.np = &m1.p + &(&m1.p - &m1.pp);
+            let target_acceleration = match m1.t {
+                None =>{
+                    Vector{x:0.0, y:0.0}
+                },
+                Some(r_i) => {
+                    normalize(& (self.resources[r_i].p - m1.p) ) * 0.00001
+                }
+            };
+            let deceleration = (&m1.p - &m1.op) * (- 0.01);
+            m1.pn = &m1.p
+                + &(&m1.p - &m1.op)
+                + target_acceleration
+                + deceleration;
         }
         for i in self.active_machines.values() {
             let mut m1 = &mut self.machines[*i];
-            m1.pp = m1.p;
-            m1.p = m1.np;
+            m1.op = m1.p;
+            m1.p = m1.pn;
         }
+        let mut resources_to_delete = Vec::new();
+        for i in self.active_machines.values() {
+            let m1 = &mut self.machines[*i];
+            match m1.t {
+                None =>{}
+                Some(r_i) => {
+                    let r_p = self.resources[r_i].p;
+                    let r_u = self.resources[r_i].u;
+                    if distance_squared(&m1.p, &r_p) < self.DIAMETER * self.DIAMETER {
+                        m1.t = None;
+                        resources_to_delete.push(r_u);
+                    }
+                }
+            }
+        }
+        for r_u in resources_to_delete.iter() {
+            self.delete_resource(*r_u);
+        }
+        self.update_targets();
+        self.step += 1;
     }
-
 }
 
 
@@ -310,8 +488,11 @@ impl Universe {
     pub fn reset(&mut self) {
         *self = Universe::new();
     }
+}
 
 
+#[wasm_bindgen]
+impl Universe {
     pub fn add_resource_kind (&mut self, text_id: &str, label: &str, color: &str) -> uuid{
         let u = self.new_uuid();
         self.resource_kinds.insert(u, ResourceKind {
@@ -321,8 +502,10 @@ impl Universe {
             c: color.to_string(),
         });
         self.active_resources_by_kind.insert(u, HashMap::new());
+        self.available_resources_by_kind.insert(u, HashMap::new());
         for i in 0..self.CELLS_COUNT {
             self.cells[i].active_resources_by_kind.insert(u, HashMap::new());
+            self.cells[i].available_resources_by_kind.insert(u, HashMap::new());
         }
         u
     }
@@ -330,8 +513,13 @@ impl Universe {
 
 
 pub fn cell_id(p: Vector, s: usize) -> usize {
-    (p.x * s as float).floor() as usize
-        + ( (p.y * s as float).floor() as usize ) * s
+    let x = 0.max( (s-1) .min(  (p.x * s as float).floor() as usize  ));
+    let y = 0.max( (s-1) .min(  (p.y * s as float).floor() as usize  ));
+    let id = x + y * s;
+    // if id >= s*s {
+    //     log!("{:?} {:?} -> {:?}", x, y, id);
+    // }
+    id
 }
 
 
@@ -422,4 +610,26 @@ impl Universe {
         r
     }
 
+
+    pub fn closest_resource_all_c9s(& self, machine_u: uuid) -> Option<uuid> {
+        let machine = &self.machines[self.active_machines[&machine_u]];
+        let cell_id = cell_id(machine.p, self.CELLS_COUNT_BY_SIDE);
+        let c9s = &self.cells[cell_id].c9s;
+        let mut r = None;
+        let mut d_sqrd_min = f32::INFINITY;
+        for cell_id in c9s {
+            let cell = &self.cells[*cell_id];
+            for kind_u in self.resource_kinds.keys() {
+                for i in cell.active_resources_by_kind[&kind_u].values() {
+                    let resource = &self.resources[*i];
+                    let d_sqrd = distance_squared(&machine.p, &resource.p);
+                    if d_sqrd < d_sqrd_min {
+                        d_sqrd_min = d_sqrd;
+                        r = Some(resource.u);
+                    }
+                }
+            }
+        }
+        r
+    }
 }
