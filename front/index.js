@@ -9,7 +9,7 @@ from "./canvas.js"
 
 const tm = await tml.default()
 const machine_struct_size = 13
-const resource_struct_size = 7
+const resource_struct_size = 8
 const keep_drawing = true
 const keep_ticking = true
 
@@ -59,6 +59,7 @@ const resource = (resources, i) => {
     d: resources.getFloat32(i*size+4*4, true),
     k: resources.getUint32(i*size+4*5, true),
     a: resources.getUint32(i*size+4*6, true),
+    store: resources.getFloat32(i*size+4*7, true),
   }
 }
 
@@ -89,8 +90,12 @@ const test_1 = () => {
   );
 
   universe.tick();
-  universe.tick();
-  universe.tick();
+
+  assert_eq(resource(resources, 0).p.x, 0.201)
+  assert_eq(resource(resources, 1).p.x, 0.8)
+
+  // universe.tick();
+  // universe.tick();
 
   console.log( resource(resources, 0) )
   console.log( resource(resources, 1) )
@@ -106,7 +111,7 @@ const test = () => {
 
 
 const run = () => {
-  const ZOOM = 2;
+  const ZOOM = 0.25;
   const size = Math.min(document.documentElement.clientHeight, document.documentElement.clientWidth)
   const size_2 = Math.max(document.documentElement.clientHeight, document.documentElement.clientWidth)
   if (document.documentElement.clientHeight > document.documentElement.clientWidth) {
@@ -126,15 +131,16 @@ const run = () => {
   const canvas = document.getElementById('canvas')
   const context = canvas.getContext("2d")
   const universe = tml.Universe.new()
-  for (var i = 0; i < 100; i++) {
+  for (var i = 0; i < 5; i++) {
     universe.add_machine_2(Math.random(), Math.random(), 0.0, 0.0)
   }
   const forest_k = universe.add_resource_kind(
     "tachicosmachines.forest",
     "Forest",
     "#0F0",
+    0.0035,
   )
-  for (var i = 0; i < 1000; i++) {
+  for (var i = 0; i < 10; i++) {
     universe.add_resource(forest_k, Math.random(), Math.random())
   }
   tick(universe)
@@ -159,10 +165,6 @@ const draw = (universe, context) => {
     universe.machines(),
     universe.machines_count() * 4 * machine_struct_size
   );
-  for (let i = 0; i < universe.machines_count(); i++) {
-    const m = machine(machines, i)
-    fill_circle( context, m.p.x, m.p.y, m.d, "#F0F")
-  }
   const resources = new DataView(
     tm.memory.buffer,
     universe.resources(),
@@ -171,7 +173,11 @@ const draw = (universe, context) => {
   for (let i = 0; i < universe.resources_count(); i++) {
     const r = resource(resources, i)
     if (r.a) {
-      fill_circle( context, r.p.x, r.p.y, r.d, "#0F0")
+      const cr = 255.0 * (1.0 - r.store)
+      const cg = 255.0
+      const cb = 0.0
+      const color = `rgba(${cr}, ${cg}, ${cb}, 1.0)`
+      fill_circle( context, r.p.x, r.p.y, r.d, color)
     }
   }
   for (let i = 0; i < universe.machines_count(); i++) {
@@ -180,6 +186,10 @@ const draw = (universe, context) => {
     if (r.a && m.ht) {
       line(context, m.p.x, m.p.y, r.p.x, r.p.y, 2, "#aaa")
     }
+  }
+  for (let i = 0; i < universe.machines_count(); i++) {
+    const m = machine(machines, i)
+    fill_circle( context, m.p.x, m.p.y, m.d, "#F0F")
   }
   if (keep_drawing) {
     requestAnimationFrame(() => {

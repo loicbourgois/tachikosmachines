@@ -85,3 +85,17 @@ pub fn normalize(p: &Vector) -> Vector {
 pub fn dot(p1: &Vector, p2: &Vector) -> float {
     return p1.x * p2.x + p1.y * p2.y;
 }
+
+
+pub fn rotate(p1: &Vector, p2: &Vector, angle: float) -> Vector {
+    // Rotates p2 around p1
+    let angle_ = angle * std::f32::consts::PI * 2.0;
+    let dx = p2.x - p1.x;
+    let dy = p2.y - p1.y;
+    let cos_ = angle_.cos();
+    let sin_ = angle_.sin();
+    Vector {
+        x: p1.x + dx * cos_ - dy * sin_,
+        y: p1.y + dy * cos_ + dx * sin_,
+    }
+}

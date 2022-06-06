@@ -5,6 +5,8 @@ use crate::AddMachine;
 use crate::log;
 use crate::now;
 use crate::float;
+use crate::uuid;
+use crate::count_resources_at;
 
 
 #[wasm_bindgen]
@@ -26,6 +28,10 @@ impl Universe {
             self.test_6();
             log!("7--------");
             self.test_7();
+            log!("8--------");
+            self.test_8();
+            log!("9--------");
+            self.test_9();
         }
         self.reset();
     }
@@ -35,6 +41,16 @@ impl Universe {
 
 pub fn almost_eq(a: float, b: float) -> bool {
     (a-b).abs() < 0.01
+}
+
+
+pub fn add_forest_definition(universe: &mut Universe) -> uuid {
+    universe.add_resource_kind(
+        "tachicosmachines.forest",
+        "Forest",
+        "#0F0",
+        0.005,
+    )
 }
 
 
@@ -56,11 +72,7 @@ impl Universe {
         assert!(almost_eq(self.machines[self.active_machines[&u]].p.x, 0.6));
         assert!(almost_eq(self.machines[self.active_machines[&u]].op.x, 0.5));
         self.delete_machine(u);
-        let forest = self.add_resource_kind(
-            "tachicosmachines.forest",
-            "Forest",
-            "#0F0",
-        );
+        let forest = add_forest_definition(self);
         let r_u = self.add_resource(forest, 0.2, 0.3);
         self.delete_resource(r_u);
         self.reset();
@@ -81,11 +93,7 @@ impl Universe {
                 y: 0.0,
             }
         });
-        let forest_kind = self.add_resource_kind(
-            "tachicosmachines.forest",
-            "Forest",
-            "#0F0",
-        );
+        let forest_kind  = add_forest_definition(self);
         let forest_1 = self.add_resource(forest_kind, 0.2, 0.3);
         let forest_2 = self.add_resource(forest_kind, 0.4, 0.4);
         let forest_3 = self.add_resource(forest_kind, 0.45, 0.15);
@@ -100,11 +108,7 @@ impl Universe {
 impl Universe {
     pub fn test_3(&mut self) {
         let start = now();
-        let forest_kind = self.add_resource_kind(
-            "tachicosmachines.forest",
-            "Forest",
-            "#0F0",
-        );
+        let forest_kind =  add_forest_definition(self);
         let resources_count = 1000;
         let machines_count = 1000;
         for _ in 0..resources_count {
@@ -147,11 +151,7 @@ impl Universe {
 impl Universe {
     pub fn test_4(&mut self) {
         let start = now();
-        let forest_kind = self.add_resource_kind(
-            "tachicosmachines.forest",
-            "Forest",
-            "#0F0",
-        );
+        let forest_kind  = add_forest_definition(self);
         let resources_count = 10_000;
         let machines_count = 10_000;
         for _ in 0..resources_count {
@@ -185,11 +185,7 @@ impl Universe {
 impl Universe {
     pub fn test_5(&mut self) {
         let start = now();
-        let forest_kind = self.add_resource_kind(
-            "tachicosmachines.forest",
-            "Forest",
-            "#0F0",
-        );
+        let forest_kind = add_forest_definition(self);
         let resources_count = 10_001;
         let machines_count = 10_000;
         for _ in 0..resources_count {
@@ -225,11 +221,7 @@ impl Universe {
 impl Universe {
     pub fn test_6(&mut self) {
         let start = now();
-        let forest_kind = self.add_resource_kind(
-            "tachicosmachines.forest",
-            "Forest",
-            "#0F0",
-        );
+        let forest_kind  = add_forest_definition(self);
         self.add_resource(forest_kind,  0.2, 0.2);
         self.add_resource(forest_kind,  0.2, 0.3);
         let machine = self.add_machine(&AddMachine{
@@ -260,11 +252,7 @@ impl Universe {
 #[wasm_bindgen]
 impl Universe {
     pub fn test_7(&mut self) {
-        let forest_kind = self.add_resource_kind(
-            "tachicosmachines.forest",
-            "Forest",
-            "#0F0",
-        );
+        let forest_kind  = add_forest_definition(self);
         let resources_count = 1_000;
         let machines_count = 100;
         for _ in 0..resources_count {
@@ -282,9 +270,98 @@ impl Universe {
                 }
             });
         }
+        log!("resources: {:?}", self.resources.len() );
         for _ in 0..1000 {
             self.tick();
         }
+        log!("resources: {:?}", self.resources.len() );
+        self.reset();
+    }
+}
+
+
+#[wasm_bindgen]
+impl Universe {
+    pub fn test_8(&mut self) {
+        let forest_kind  = add_forest_definition(self);
+        let resources_count = 100;
+        for _ in 0..resources_count {
+            self.add_resource(
+                forest_kind,
+                (js_sys::Math::random() as float) * 0.01,
+                (js_sys::Math::random() as float) * 0.01,
+            );
+        }
+        self.udpate_cells();
+        let count = count_resources_at(
+            Vector{
+                x: 0.0,
+                y: 0.0,
+            },
+            0.1,
+            self.CELLS_COUNT_BY_SIDE,
+            &self.cells,
+            &self.resources,
+        );
+        log!("count: {:?}", count);
+        assert!(count  == resources_count);
+        let count = count_resources_at(
+            Vector{
+                x: 0.5,
+                y: 0.5,
+            },
+            0.1,
+            self.CELLS_COUNT_BY_SIDE,
+            &self.cells,
+            &self.resources,
+        );
+        log!("count: {:?}", count);
+        assert!(count  == 0);
+        self.reset();
+    }
+}
+
+
+#[wasm_bindgen]
+impl Universe {
+    pub fn test_9(&mut self) {
+        self.DIAMETER = 0.01;
+        let forest_kind  = add_forest_definition(self);
+        self.add_resource(
+            forest_kind,
+            0.01,
+            0.01,
+        );
+        self.add_resource(
+            forest_kind,
+            0.01,
+            0.02,
+        );
+        self.udpate_cells();
+        let count = count_resources_at(
+            Vector{
+                x: 0.01,
+                y: 0.0,
+            },
+            0.001,
+            self.CELLS_COUNT_BY_SIDE,
+            &self.cells,
+            &self.resources,
+        );
+        log!("count: {:?}", count);
+        assert!(count  == 0);
+        let count = count_resources_at(
+            Vector{
+                x: 0.01,
+                y: 0.0,
+            },
+            0.02,
+            self.CELLS_COUNT_BY_SIDE,
+            &self.cells,
+            &self.resources,
+        );
+        log!("count: {:?}", count);
+        assert!(count  == 1);
         self.reset();
     }
 }

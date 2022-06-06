@@ -1,18 +1,23 @@
 pub mod utils;
 pub mod maths;
 pub mod tests;
+pub mod cell;
+use crate::cell::*;
 use crate::maths::*;
 
 
 use wasm_bindgen::prelude::*;
 use std::collections::HashMap;
 
+
+extern crate web_sys;
+
+
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
-
 #[wasm_bindgen]
 extern {
     fn alert(s: &str);
@@ -25,11 +30,8 @@ macro_rules! log {
         web_sys::console::log_1(&format!( $( $t )* ).into());
     }
 }
-
 pub(crate) use log;
 
-
-extern crate web_sys;
 
 pub fn now() -> f64 {
     web_sys::window()
@@ -42,7 +44,7 @@ pub fn now() -> f64 {
 
 #[wasm_bindgen]
 pub fn greet() {
-    log!("Hello, zoop!");
+    log!("Hello!");
 }
 
 
@@ -84,6 +86,9 @@ pub struct ResourceKind {
     t: String,
     // color
     c: String,
+    growth_rate: float,
+    split_cost: Option<float>,
+    // growth_precursors:
 }
 
 
@@ -101,7 +106,12 @@ pub struct Resource {
     k: uuid,
     // active
     a: u32,
+    //
+    store: float,
 }
+
+type Cells = Vec<Cell>;
+type Resources = Vec<Resource>;
 
 
 #[wasm_bindgen]
@@ -110,31 +120,18 @@ pub struct Universe {
     active_machines: HashMap<uuid, usize>,
     inactive_machines: HashMap<uuid, usize>,
     next_uuid: uuid,
-    resources: Vec<Resource>,
+    resources: Resources,
     active_resources: HashMap<uuid, usize>,
     inactive_resources: HashMap<uuid, usize>,
     active_resources_by_kind: HashMap<uuid, HashMap<uuid, usize> >,
-
     available_resources_by_kind: HashMap<uuid, HashMap<uuid, usize> >,
-
     resource_kinds: HashMap<uuid, ResourceKind>,
     resource_kinds_by_text_id: HashMap<String, uuid>,
     DIAMETER: float,
     CELLS_COUNT_BY_SIDE: usize,
     CELLS_COUNT: usize,
-    cells: Vec<Cell>,
+    cells: Cells,
     step: usize,
-}
-
-
-#[wasm_bindgen]
-#[derive(Debug)]
-pub struct Cell {
-    active_resources_by_kind: HashMap<uuid, HashMap<uuid, usize> >,
-    available_resources_by_kind: HashMap<uuid, HashMap<uuid, usize> >,
-    active_machines: HashMap<uuid, usize>,
-    c9s: Vec<usize>,
-    cell_id: usize,
 }
 
 
@@ -258,51 +255,6 @@ impl Universe {
         let i = self.active_machines[&u];
         self.active_machines.remove(&u);
         self.inactive_machines.insert(u, i);
-    }
-}
-
-
-#[wasm_bindgen]
-impl Universe {
-    pub fn add_resource(
-        &mut self,
-        kind: uuid,
-        x: float,
-        y: float,
-    ) -> uuid {
-        let u = self.new_uuid();
-        let i = self.resources.len();
-        let p = Vector{
-            x:x,
-            y:y
-        };
-        let cell_id = cell_id(p, self.CELLS_COUNT_BY_SIDE);
-        self.resources.push(Resource{
-            u: u,
-            i: i,
-            p: p,
-            d: self.DIAMETER,
-            k: kind,
-            a: 1,
-        });
-        self.active_resources.insert(u, i);
-        self.active_resources_by_kind.get_mut(&kind).unwrap().insert(u, i);
-        self.available_resources_by_kind.get_mut(&kind).unwrap().insert(u, i);
-        self.cells.get_mut(cell_id).unwrap().available_resources_by_kind.get_mut(&kind).unwrap().insert(u, i);
-        u
-    }
-
-
-    pub fn delete_resource(&mut self, u: uuid) {
-        let i = self.active_resources[&u];
-        self.resources[i].a = 0;
-        let resource = &self.resources[i];
-        let cell_id = cell_id(resource.p, self.CELLS_COUNT_BY_SIDE);
-        self.active_resources_by_kind.get_mut(&resource.k).unwrap().remove(&u);
-        self.available_resources_by_kind.get_mut(&resource.k).unwrap().remove(&u);
-        self.cells.get_mut(cell_id).unwrap().available_resources_by_kind.get_mut(&resource.k).unwrap().remove(&u);
-        self.active_resources.remove(&u);
-        self.inactive_resources.insert(u, i);
     }
 }
 
@@ -436,8 +388,7 @@ impl Universe {
 
 #[wasm_bindgen]
 impl Universe {
-    pub fn tick(&mut self) {
-        self.udpate_cells();
+    pub fn move_machines(&mut self) {
         for i in self.active_machines.values() {
             let mut m1 = &mut self.machines[*i];
             let target_acceleration = match m1.t {
@@ -459,6 +410,13 @@ impl Universe {
             m1.op = m1.p;
             m1.p = m1.pn;
         }
+    }
+}
+
+
+#[wasm_bindgen]
+impl Universe {
+    pub fn collect_resources(&mut self) {
         let mut resources_to_delete = Vec::new();
         for i in self.active_machines.values() {
             let m1 = &mut self.machines[*i];
@@ -477,6 +435,152 @@ impl Universe {
         for r_u in resources_to_delete.iter() {
             self.delete_resource(*r_u);
         }
+    }
+}
+
+
+pub fn count_resources_at(
+    p: Vector,
+    diameter: float,
+    CELLS_COUNT_BY_SIDE: usize,
+    cells: &Cells,
+    resources: &Resources,
+) -> usize {
+    let cell_id = cell_id(p, CELLS_COUNT_BY_SIDE);
+    let mut count = 0;
+    for cell_id_2 in &cells[cell_id].c9s {
+        let cell = &cells[*cell_id_2];
+        for (kind_u, active_resources) in cell.active_resources_by_kind.iter() {
+            for (i, resource_u) in active_resources {
+                let r = &resources[*resource_u];
+                let diams = diameter*0.5+r.d*0.5;
+                if distance_squared(&r.p, &p) < diams*diams {
+                    count+= 1;
+                }
+            }
+        }
+    }
+    count
+}
+
+
+#[wasm_bindgen]
+impl Universe {
+    pub fn grow_resources(&mut self) {
+        for (u,i) in self.active_resources.clone() {
+            let (new_resource_p, r_kind_u) = {
+                let r_kind = &self.resource_kinds[&self.resources[i].k];
+                self.resources[i].store += r_kind.growth_rate;
+                let r1 = &self.resources[i];
+                let new_resource_p: Option<Vector> = match (r1.store >= 1.0, r_kind.split_cost) {
+                    (true, Some (cost)) => {
+                        let new_p = rotate(
+                            &r1.p,
+                            &(r1.p + Vector{x:r1.d * 1.01, y:0.0}),
+                            js_sys::Math::random() as float,
+                        );
+                        match (count_resources_at(
+                            new_p,
+                            r1.d,
+                            self.CELLS_COUNT_BY_SIDE,
+                            &self.cells,
+                            &self.resources,
+                        ), distance_squared(&new_p, &Vector{x:0.5, y:0.5}) < 0.25 ) {
+                            (0, true) => {
+                                self.resources[i].store -= cost;
+                                Some(new_p)
+                            }
+                            _ => {
+                                None
+                            }
+                        }
+                    }
+                    _ => {
+                        None
+                    }
+                };
+                let mut r1_mut = &mut self.resources[i];
+                r1_mut.store = r1_mut.store.max(0.0).min(1.0);
+                (new_resource_p, r_kind.u)
+            };
+            match new_resource_p {
+                Some(p) => {
+                    self.add_resource(
+                        r_kind_u,
+                        p.x,
+                        p.y,
+                    );
+                }
+                None => {}
+            };
+
+        }
+    }
+}
+
+
+#[wasm_bindgen]
+impl Universe {
+    // pub fn add_resource_2(
+    //     kind: uuid,
+    //     x: float,
+    //     y: float,
+    // ) -> uuid {
+    //
+    // }
+
+
+    pub fn add_resource(
+        &mut self,
+        kind: uuid,
+        x: float,
+        y: float,
+    ) -> uuid {
+        let u = self.new_uuid();
+        let i = self.resources.len();
+        let p = Vector{
+            x:x,
+            y:y
+        };
+        let cell_id = cell_id(p, self.CELLS_COUNT_BY_SIDE);
+        self.resources.push(Resource{
+            u: u,
+            i: i,
+            p: p,
+            d: self.DIAMETER,
+            k: kind,
+            a: 1,
+            store: 0.0,
+        });
+        self.active_resources.insert(u, i);
+        self.active_resources_by_kind.get_mut(&kind).unwrap().insert(u, i);
+        self.available_resources_by_kind.get_mut(&kind).unwrap().insert(u, i);
+        self.cells.get_mut(cell_id).unwrap().available_resources_by_kind.get_mut(&kind).unwrap().insert(u, i);
+        u
+    }
+
+
+    pub fn delete_resource(&mut self, u: uuid) {
+        let i = self.active_resources[&u];
+        self.resources[i].a = 0;
+        let resource = &self.resources[i];
+        let cell_id = cell_id(resource.p, self.CELLS_COUNT_BY_SIDE);
+        self.active_resources_by_kind.get_mut(&resource.k).unwrap().remove(&u);
+        self.available_resources_by_kind.get_mut(&resource.k).unwrap().remove(&u);
+        self.cells.get_mut(cell_id).unwrap().available_resources_by_kind.get_mut(&resource.k).unwrap().remove(&u);
+        self.active_resources.remove(&u);
+        self.inactive_resources.insert(u, i);
+    }
+}
+
+
+#[wasm_bindgen]
+impl Universe {
+    pub fn tick(&mut self) {
+        self.udpate_cells();
+        self.move_machines();
+        self.grow_resources();
+        self.collect_resources();
         self.update_targets();
         self.step += 1;
     }
@@ -493,13 +597,21 @@ impl Universe {
 
 #[wasm_bindgen]
 impl Universe {
-    pub fn add_resource_kind (&mut self, text_id: &str, label: &str, color: &str) -> uuid{
+    pub fn add_resource_kind (
+        &mut self,
+        text_id: &str,
+        label: &str,
+        color: &str,
+        growth_rate: float,
+    ) -> uuid{
         let u = self.new_uuid();
         self.resource_kinds.insert(u, ResourceKind {
             u: u,
             l: label.to_string(),
             t: text_id.to_string(),
             c: color.to_string(),
+            growth_rate: growth_rate,
+            split_cost: Some(0.25),
         });
         self.active_resources_by_kind.insert(u, HashMap::new());
         self.available_resources_by_kind.insert(u, HashMap::new());
@@ -516,9 +628,6 @@ pub fn cell_id(p: Vector, s: usize) -> usize {
     let x = 0.max( (s-1) .min(  (p.x * s as float).floor() as usize  ));
     let y = 0.max( (s-1) .min(  (p.y * s as float).floor() as usize  ));
     let id = x + y * s;
-    // if id >= s*s {
-    //     log!("{:?} {:?} -> {:?}", x, y, id);
-    // }
     id
 }
 
