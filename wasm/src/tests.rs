@@ -274,7 +274,9 @@ impl Universe {
         for _ in 0..1000 {
             self.tick();
         }
-        log!("resources: {:?}", self.resources.len() );
+        log!("resources:          {:?}", self.resources.len() );
+        log!("active_resources:   {:?}", self.active_resources.len() );
+        log!("inactive_resources: {:?}", self.inactive_resources.len() );
         self.reset();
     }
 }
@@ -325,7 +327,7 @@ impl Universe {
 #[wasm_bindgen]
 impl Universe {
     pub fn test_9(&mut self) {
-        self.DIAMETER = 0.01;
+        self.base_diameter = 0.01;
         let forest_kind  = add_forest_definition(self);
         self.add_resource(
             forest_kind,

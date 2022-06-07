@@ -54,6 +54,7 @@ type uuid = u32;
 
 #[wasm_bindgen]
 #[derive(Debug)]
+#[repr(C)]
 pub struct Machine {
     // uuid
     u: uuid,
@@ -73,6 +74,8 @@ pub struct Machine {
     t: Option<usize>,
     // has target
     ht: u32,
+    //
+    store: HashMap<uuid, float>,
 }
 
 
@@ -127,7 +130,7 @@ pub struct Universe {
     available_resources_by_kind: HashMap<uuid, HashMap<uuid, usize> >,
     resource_kinds: HashMap<uuid, ResourceKind>,
     resource_kinds_by_text_id: HashMap<String, uuid>,
-    DIAMETER: float,
+    base_diameter: float,
     CELLS_COUNT_BY_SIDE: usize,
     CELLS_COUNT: usize,
     cells: Cells,
@@ -161,8 +164,8 @@ impl AddMachine {
 
 #[wasm_bindgen]
 impl Universe {
-    pub fn new() -> Universe {
-        let CELLS_COUNT_BY_SIDE = 25;
+    pub fn new(base_diameter: float) -> Universe {
+        let CELLS_COUNT_BY_SIDE = (0.25 / base_diameter) as usize;
         let mut universe = Universe {
              machines: Vec::new(),
              inactive_machines: HashMap::new(),
@@ -175,9 +178,9 @@ impl Universe {
              available_resources_by_kind: HashMap::new(),
              resource_kinds: HashMap::new(),
              resource_kinds_by_text_id: HashMap::new(),
-             DIAMETER: 0.01,
+             base_diameter: base_diameter,
              CELLS_COUNT_BY_SIDE: CELLS_COUNT_BY_SIDE,
-             CELLS_COUNT: CELLS_COUNT_BY_SIDE*CELLS_COUNT_BY_SIDE,
+             CELLS_COUNT: CELLS_COUNT_BY_SIDE * CELLS_COUNT_BY_SIDE,
              cells: Vec::new(),
              step: 0,
         };
@@ -235,16 +238,22 @@ impl Universe {
     pub fn add_machine(&mut self, args: & AddMachine) -> uuid {
         let u = self.new_uuid();
         let i = self.machines.len();
+        let mut store = HashMap::with_capacity(self.resource_kinds.len());
+        for k in self.resource_kinds.keys() {
+            store.insert(*k, 3.25);
+        }
+        store.shrink_to_fit();
         self.machines.push(Machine{
             u: u,
             i: i,
             op: &args.position - &args.speed,
             p: args.position,
             pn: args.position,
-            d: self.DIAMETER,
-            m: 1.0,
+            d: self.base_diameter,
+            m: 27.0,
             t: None,
             ht: 0,
+            store: store,
         });
         self.active_machines.insert(u, i);
         u
@@ -308,7 +317,6 @@ pub fn closest_available_resource_all_c9s(
     }
     r
 }
-
 
 
 pub fn find_target(
@@ -423,10 +431,12 @@ impl Universe {
             match m1.t {
                 None =>{}
                 Some(r_i) => {
-                    let r_p = self.resources[r_i].p;
-                    let r_u = self.resources[r_i].u;
-                    if distance_squared(&m1.p, &r_p) < self.DIAMETER * self.DIAMETER {
+                    let r = &self.resources[r_i];
+                    let r_p = r.p;
+                    let r_u = r.u;
+                    if distance_squared(&m1.p, &r_p) < self.base_diameter * self.base_diameter {
                         m1.t = None;
+                        *m1.store.get_mut( &r.k ).unwrap() += r.store;
                         resources_to_delete.push(r_u);
                     }
                 }
@@ -521,15 +531,6 @@ impl Universe {
 
 #[wasm_bindgen]
 impl Universe {
-    // pub fn add_resource_2(
-    //     kind: uuid,
-    //     x: float,
-    //     y: float,
-    // ) -> uuid {
-    //
-    // }
-
-
     pub fn add_resource(
         &mut self,
         kind: uuid,
@@ -537,21 +538,39 @@ impl Universe {
         y: float,
     ) -> uuid {
         let u = self.new_uuid();
-        let i = self.resources.len();
         let p = Vector{
             x:x,
             y:y
         };
         let cell_id = cell_id(p, self.CELLS_COUNT_BY_SIDE);
-        self.resources.push(Resource{
-            u: u,
-            i: i,
-            p: p,
-            d: self.DIAMETER,
-            k: kind,
-            a: 1,
-            store: 0.0,
-        });
+        let i = if self.inactive_resources.len() > 0 {
+            let (u_, i_) = self.inactive_resources.iter().next().unwrap();
+            let uu = (*u_).clone();
+            let i:usize = (*i_).clone();
+            self.inactive_resources.remove(&uu);
+            self.resources[i] = Resource{
+                u: u,
+                i: i,
+                p: p,
+                d: self.base_diameter,
+                k: kind,
+                a: 1,
+                store: 0.0,
+            };
+            i
+        } else {
+            let i = self.resources.len();
+            self.resources.push(Resource{
+                u: u,
+                i: i,
+                p: p,
+                d: self.base_diameter,
+                k: kind,
+                a: 1,
+                store: 0.0,
+            });
+            i
+        };
         self.active_resources.insert(u, i);
         self.active_resources_by_kind.get_mut(&kind).unwrap().insert(u, i);
         self.available_resources_by_kind.get_mut(&kind).unwrap().insert(u, i);
@@ -590,7 +609,7 @@ impl Universe {
 #[wasm_bindgen]
 impl Universe {
     pub fn reset(&mut self) {
-        *self = Universe::new();
+        *self = Universe::new(self.base_diameter);
     }
 }
 
