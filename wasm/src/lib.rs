@@ -75,14 +75,13 @@ pub struct Machine {
     // has target
     ht: u32,
     //
-    store: HashMap<uuid, float>,
+    store: Vec<float>,
 }
 
 
 #[wasm_bindgen]
 pub struct ResourceKind {
-    // uuid
-    u: uuid,
+    u: ResourceKindId,
     // label
     l: String,
     // text_id
@@ -106,7 +105,7 @@ pub struct Resource {
     // diameter
     d: float,
     // kind
-    k: uuid,
+    k: ResourceKindId,
     // active
     a: u32,
     //
@@ -115,21 +114,23 @@ pub struct Resource {
 
 type Cells = Vec<Cell>;
 type Resources = Vec<Resource>;
-
+type ResourceKindId = usize;
+type ResourceKinds = Vec<ResourceKind>;
 
 #[wasm_bindgen]
 pub struct Universe {
     machines: Vec<Machine>,
+    machines_stores: Vec<float>,
     active_machines: HashMap<uuid, usize>,
     inactive_machines: HashMap<uuid, usize>,
     next_uuid: uuid,
     resources: Resources,
     active_resources: HashMap<uuid, usize>,
     inactive_resources: HashMap<uuid, usize>,
-    active_resources_by_kind: HashMap<uuid, HashMap<uuid, usize> >,
-    available_resources_by_kind: HashMap<uuid, HashMap<uuid, usize> >,
-    resource_kinds: HashMap<uuid, ResourceKind>,
-    resource_kinds_by_text_id: HashMap<String, uuid>,
+    active_resources_by_kind: HashMap<ResourceKindId, HashMap<uuid, usize> >,
+    available_resources_by_kind: HashMap<ResourceKindId, HashMap<uuid, usize> >,
+    resource_kinds: ResourceKinds,
+    resource_kinds_by_text_id: HashMap<String, ResourceKindId>,
     base_diameter: float,
     CELLS_COUNT_BY_SIDE: usize,
     CELLS_COUNT: usize,
@@ -176,13 +177,14 @@ impl Universe {
              active_resources_by_kind: HashMap::new(),
              inactive_resources: HashMap::new(),
              available_resources_by_kind: HashMap::new(),
-             resource_kinds: HashMap::new(),
+             resource_kinds: Vec::new(),
              resource_kinds_by_text_id: HashMap::new(),
              base_diameter: base_diameter,
              CELLS_COUNT_BY_SIDE: CELLS_COUNT_BY_SIDE,
              CELLS_COUNT: CELLS_COUNT_BY_SIDE * CELLS_COUNT_BY_SIDE,
              cells: Vec::new(),
              step: 0,
+             machines_stores: Vec::new(),
         };
         for cell_id in 0..universe.CELLS_COUNT {
             universe.cells.push(Cell{
@@ -210,6 +212,16 @@ impl Universe {
     }
 
 
+    pub fn machines_stores(&self) -> *const float {
+        self.machines_stores.as_ptr()
+    }
+
+
+    pub fn machines_stores_count(&self) -> usize {
+        self.machines_stores.len()
+    }
+
+
     pub fn resources(&self) -> *const Resource {
         self.resources.as_ptr()
     }
@@ -217,6 +229,11 @@ impl Universe {
 
     pub fn resources_count(&self) -> usize {
         self.resources.len()
+    }
+
+
+    pub fn resources_kind_count(&self) -> usize {
+        self.resource_kinds.len()
     }
 
 
@@ -238,11 +255,10 @@ impl Universe {
     pub fn add_machine(&mut self, args: & AddMachine) -> uuid {
         let u = self.new_uuid();
         let i = self.machines.len();
-        let mut store = HashMap::with_capacity(self.resource_kinds.len());
-        for k in self.resource_kinds.keys() {
-            store.insert(*k, 3.25);
+        let mut store = Vec::new();
+        for k in 0..self.resource_kinds.len() {
+            store.push(0.0);
         }
-        store.shrink_to_fit();
         self.machines.push(Machine{
             u: u,
             i: i,
@@ -250,7 +266,7 @@ impl Universe {
             p: args.position,
             pn: args.position,
             d: self.base_diameter,
-            m: 27.0,
+            m: 1.0,
             t: None,
             ht: 0,
             store: store,
@@ -270,13 +286,14 @@ impl Universe {
 
 pub fn closest_available_resource_all_full_scan(
     machine: & Machine,
-    resource_kinds: & HashMap<uuid, ResourceKind>,
-    available_resources_by_kind: & HashMap<uuid, HashMap<uuid, usize> >,
+    resource_kinds: & Vec <&ResourceKind>,
+    available_resources_by_kind: & HashMap<ResourceKindId, HashMap<uuid, usize> >,
     resources: & Vec<Resource>
 ) -> Option<usize> {
     let mut r = None;
     let mut d_sqrd_min = f32::INFINITY;
-        for kind_u in resource_kinds.keys() {
+        for kind in resource_kinds {
+            let kind_u = kind.u;
             for (u, i) in available_resources_by_kind[&kind_u].iter() {
                 let resource = & resources[*i];
                 let d_sqrd = distance_squared(&machine.p, &resource.p);
@@ -292,8 +309,8 @@ pub fn closest_available_resource_all_full_scan(
 
 pub fn closest_available_resource_all_c9s(
     machine: & Machine,
-    resource_kinds: & HashMap<uuid, ResourceKind>,
-    available_resources_by_kind: & HashMap<uuid, HashMap<uuid, usize> >,
+    resource_kinds: & Vec <&ResourceKind>,
+    available_resources_by_kind: & HashMap<ResourceKindId, HashMap<uuid, usize> >,
     resources: & Vec<Resource>,
     CELLS_COUNT_BY_SIDE: usize,
     cells: &Vec<Cell>,
@@ -304,7 +321,8 @@ pub fn closest_available_resource_all_c9s(
     let mut d_sqrd_min = f32::INFINITY;
     for cell_id in c9s {
         let cell = &cells[*cell_id];
-        for kind_u in resource_kinds.keys() {
+        for kind in resource_kinds {
+            let kind_u = kind.u;
             for i in cell.available_resources_by_kind[&kind_u].values() {
                 let resource = & resources[*i];
                 let d_sqrd = distance_squared(&machine.p, &resource.p);
@@ -321,16 +339,33 @@ pub fn closest_available_resource_all_c9s(
 
 pub fn find_target(
     machine: &mut Machine,
-    available_resources_by_kind: &mut HashMap<uuid, HashMap<uuid, usize>>,
-    resource_kinds: & HashMap<uuid, ResourceKind>,
+    available_resources_by_kind: &mut HashMap<ResourceKindId, HashMap<uuid, usize>>,
+    resource_kinds: & ResourceKinds,
     resources: & Vec<Resource>,
     active_resources: & HashMap<uuid, usize>,
     CELLS_COUNT_BY_SIDE: usize,
     cells: &mut Vec<Cell>,
 ) {
+
+    // let wanted_resources = resource_kinds.iter().enumerate()
+    //     //.map(|(i, v)| *v)
+    //     //.filter(|(i, v)| machine.store[i] < 1.0)
+    //     .collect();
+    let wanted_resources: Vec<&ResourceKind> = resource_kinds
+        .iter()
+        .filter(|k| machine.store[k.u] < 1.0)
+        // .cloned()
+        .collect();
+
+    // for i in 0..resource_kinds.len() {
+    //     if machine.store[0] < 1.0 {
+    //         wanted_resources.push( resource_kinds[i] );
+    //     }
+    // }
+
     machine.t = match closest_available_resource_all_c9s(
         machine,
-        resource_kinds,
+        &wanted_resources,
         available_resources_by_kind,
         resources,
         CELLS_COUNT_BY_SIDE,
@@ -339,7 +374,7 @@ pub fn find_target(
         Some(x) => Some(x),
         None => closest_available_resource_all_full_scan(
             machine,
-            resource_kinds,
+            &wanted_resources,
             available_resources_by_kind,
             resources,
         )
@@ -436,7 +471,7 @@ impl Universe {
                     let r_u = r.u;
                     if distance_squared(&m1.p, &r_p) < self.base_diameter * self.base_diameter {
                         m1.t = None;
-                        *m1.store.get_mut( &r.k ).unwrap() += r.store;
+                        *m1.store.get_mut( r.k ).unwrap() += r.store * 0.1 ;
                         resources_to_delete.push(r_u);
                     }
                 }
@@ -479,7 +514,7 @@ impl Universe {
     pub fn grow_resources(&mut self) {
         for (u,i) in self.active_resources.clone() {
             let (new_resource_p, r_kind_u) = {
-                let r_kind = &self.resource_kinds[&self.resources[i].k];
+                let r_kind = &self.resource_kinds[self.resources[i].k];
                 self.resources[i].store += r_kind.growth_rate;
                 let r1 = &self.resources[i];
                 let new_resource_p: Option<Vector> = match (r1.store >= 1.0, r_kind.split_cost) {
@@ -533,7 +568,7 @@ impl Universe {
 impl Universe {
     pub fn add_resource(
         &mut self,
-        kind: uuid,
+        kind: ResourceKindId,
         x: float,
         y: float,
     ) -> uuid {
@@ -595,12 +630,28 @@ impl Universe {
 
 #[wasm_bindgen]
 impl Universe {
+    pub fn update_machines_stores(&mut self) {
+        self.machines_stores.resize( self.resource_kinds.len()*self.machines.len(), 0.0 );
+        let mut i = 0;
+        for m in &self.machines {
+            for s in &m.store {
+                self.machines_stores[i] = *s;
+                i += 1;
+            }
+        }
+    }
+}
+
+
+#[wasm_bindgen]
+impl Universe {
     pub fn tick(&mut self) {
         self.udpate_cells();
         self.move_machines();
         self.grow_resources();
         self.collect_resources();
         self.update_targets();
+        self.update_machines_stores();
         self.step += 1;
     }
 }
@@ -622,9 +673,9 @@ impl Universe {
         label: &str,
         color: &str,
         growth_rate: float,
-    ) -> uuid{
-        let u = self.new_uuid();
-        self.resource_kinds.insert(u, ResourceKind {
+    ) -> ResourceKindId {
+        let u = self.resource_kinds.len();
+        self.resource_kinds.push(ResourceKind {
             u: u,
             l: label.to_string(),
             t: text_id.to_string(),
@@ -702,7 +753,7 @@ impl Universe {
 
 #[wasm_bindgen]
 impl Universe {
-    pub fn closest_resource(& self, machine_u: uuid, kind_u: uuid) -> Option<uuid> {
+    pub fn closest_resource(& self, machine_u: uuid, kind_u: ResourceKindId) -> Option<uuid> {
         let machine = &self.machines[self.active_machines[&machine_u]];
         let mut r = None;
         let mut d_sqrd_min = f32::INFINITY;
@@ -718,7 +769,7 @@ impl Universe {
     }
 
 
-    pub fn closest_resource_2(& self, machine_u: uuid, kind_u: uuid) -> Option<uuid> {
+    pub fn closest_resource_2(& self, machine_u: uuid, kind_u: ResourceKindId) -> Option<uuid> {
         let machine = &self.machines[self.active_machines[&machine_u]];
         let cell_id = cell_id(machine.p, self.CELLS_COUNT_BY_SIDE);
         let c9s = &self.cells[cell_id].c9s;
@@ -747,7 +798,7 @@ impl Universe {
         let mut d_sqrd_min = f32::INFINITY;
         for cell_id in c9s {
             let cell = &self.cells[*cell_id];
-            for kind_u in self.resource_kinds.keys() {
+            for kind_u in 0..self.resource_kinds.len() {
                 for i in cell.active_resources_by_kind[&kind_u].values() {
                     let resource = &self.resources[*i];
                     let d_sqrd = distance_squared(&machine.p, &resource.p);

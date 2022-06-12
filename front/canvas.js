@@ -1,6 +1,9 @@
+const ZOOM = 0.75;
+
+
 const fill_text = (context, text, x, y) => {
   const size = 18
-  const xx = context.canvas.width * x - text.length*16/3  ;
+  const xx = context.canvas.width * x * ZOOM - text.length*16/3  ;
   const yy = context.canvas.height - context.canvas.height * y + size*0.45;
   context.font = `${size}px monospace`;
   context.fillStyle = "#fff"

@@ -7,6 +7,7 @@ use crate::now;
 use crate::float;
 use crate::uuid;
 use crate::count_resources_at;
+use crate::ResourceKindId;
 
 
 #[wasm_bindgen]
@@ -44,7 +45,7 @@ pub fn almost_eq(a: float, b: float) -> bool {
 }
 
 
-pub fn add_forest_definition(universe: &mut Universe) -> uuid {
+pub fn add_forest_definition(universe: &mut Universe) -> ResourceKindId {
     universe.add_resource_kind(
         "tachicosmachines.forest",
         "Forest",
