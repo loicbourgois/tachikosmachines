@@ -392,13 +392,13 @@ pub fn find_target(
 }
 
 
-pub fn resource_by_u<'a>(
-    resources: &'a Vec<Resource>,
-    active_resources: &'a HashMap<uuid, usize>,
-    resource_u: uuid,
-) -> &'a Resource {
-    &resources[active_resources[&resource_u] ]
-}
+// pub fn resource_by_u<'a>(
+//     resources: &'a Vec<Resource>,
+//     active_resources: &'a HashMap<uuid, usize>,
+//     resource_u: uuid,
+// ) -> &'a Resource {
+//     &resources[active_resources[&resource_u] ]
+// }
 
 
 #[wasm_bindgen]
@@ -479,6 +479,19 @@ impl Universe {
         }
         for r_u in resources_to_delete.iter() {
             self.delete_resource(*r_u);
+        }
+    }
+}
+
+
+#[wasm_bindgen]
+impl Universe {
+    pub fn consume_resources(&mut self) {
+        for i in self.active_machines.values() {
+            let m1 = &mut self.machines[*i];
+            for s in m1.store.iter_mut() {
+                *s *= 0.999;
+            }
         }
     }
 }
@@ -650,6 +663,7 @@ impl Universe {
         self.move_machines();
         self.grow_resources();
         self.collect_resources();
+        self.consume_resources();
         self.update_targets();
         self.update_machines_stores();
         self.step += 1;
