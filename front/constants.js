@@ -1,8 +1,8 @@
-const machine_struct_size = 16 //13 + 1
+const machine_struct_size = 17 //13 + 1
 const resource_struct_size = 8
 const keep_drawing = true
 const keep_ticking = true
-const MACHINES = 30
+const MACHINES = 1
 
 
 export {

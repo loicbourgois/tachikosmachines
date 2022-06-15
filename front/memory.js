@@ -39,6 +39,7 @@ const machine = (
     t: machines.getUint32(i*size+4*11, true),
     ht: machines.getUint32(i*size+4*12, true),
     store: store,
+    active: machines.getUint32(i*size+4*16, true),
   }
 }
 

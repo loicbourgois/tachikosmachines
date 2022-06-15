@@ -47,7 +47,7 @@ const draw = (
   const kind_count = universe.resources_kind_count();
   for (let i = 0; i < universe.resources_count(); i++) {
     const r = resource(resources, i)
-    if (r.a) {
+    if ( r.a ) {
       fill_circle( context, r.p.x, r.p.y, r.d, colors[r.k](r))
     }
   }
@@ -61,13 +61,16 @@ const draw = (
   const machines_count = universe.machines_count()
   for (let i = 0; i < machines_count; i++) {
     const m = machine(machines, machines_stores, kind_count, i)
-    fill_circle( context, m.p.x, m.p.y, m.d, "#F0F")
-    let y = 0.0
-    for (var j = 0; j < kind_count; j++) {
-      const v = m.store[j]
-      const y2 = y + v / kind_count
-      line(context_charts, i/machines_count, y, i/machines_count, y2, 1, colors[j]({store:1.0}) )
-      y = y2
+    if (m.active) {
+      fill_circle( context, m.p.x, m.p.y, m.d, "#F0F")
+      let y = 0.0
+      for (var j = 0; j < kind_count; j++) {
+        const v = m.store[j]
+        const y2 = y + v / kind_count
+        const x = (i+0.5)/machines_count
+        line(context_charts, x, y, x, y2, Math.max(1, context_charts.canvas.width / (machines_count)) , colors[j]({store:1.0}) )
+        y = y2
+      }
     }
   }
   if (data.mouse.x && data.mouse.y) {

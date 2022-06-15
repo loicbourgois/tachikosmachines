@@ -20,7 +20,6 @@ import {
   resource_struct_size,
   keep_drawing,
   keep_ticking,
-  MACHINES,
 } from "./constants.js"
 import {
   machine,
@@ -54,7 +53,7 @@ const run = () => {
     <div id="panel">
       <p>x: <span id="mouse_x"></span></p>
       <p>y: <span id="mouse_y"></span></p>
-      <canvas id="canvas_charts" width="${MACHINES}px" height="${100}px"></canvas>
+      <canvas id="canvas_charts" width="${200}px" height="${100}px"></canvas>
       <!-- <textarea id="logs"></textarea> -->
     </div>
   `
@@ -64,6 +63,8 @@ const run = () => {
   const context_charts = document.getElementById('canvas_charts').getContext("2d")
   const universe = tml.Universe.new(
     0.02,
+    0.0001,
+    0.2,
   )
   const colors = {}
   const resource_kinds = {
@@ -115,7 +116,7 @@ const run = () => {
     colors[u] = resource_kind.color_f
     resource_kinds[k].u = u
   }
-  for (var i = 0; i < MACHINES; i++) {
+  for (var i = 0; i < 1; i++) {
     universe.add_machine_2(Math.random(), Math.random(), 0.0, 0.0)
   }
   for (var i = 0; i < 100; i++) {

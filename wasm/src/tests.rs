@@ -5,7 +5,7 @@ use crate::AddMachine;
 use crate::log;
 use crate::now;
 use crate::float;
-use crate::uuid;
+// use crate::uuid;
 use crate::count_resources_at;
 use crate::ResourceKindId;
 

@@ -52,5 +52,5 @@ pub fn test_cell_ids_9() {
 
 #[wasm_bindgen_test]
 pub fn test_universe() {
-    Universe::new(0.01).test();
+    Universe::new(0.01, 0.001, 2.0).test();
 }

@@ -15,7 +15,11 @@ import {
 
 
 const test_1 = (tm, tml) => {
-  const universe = tml.Universe.new(0.01)
+  const universe = tml.Universe.new(
+    0.01,
+    0.001,
+    2.0,
+  )
   const forest_k = universe.add_resource_kind(
     "tachicosmachines.forest",
     "Forest",

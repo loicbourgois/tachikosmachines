@@ -2,8 +2,11 @@ pub mod utils;
 pub mod maths;
 pub mod tests;
 pub mod cell;
+pub mod universe;
 use crate::cell::*;
 use crate::maths::*;
+pub use crate::universe::*;
+// export pub Universe;
 
 
 use wasm_bindgen::prelude::*;
@@ -76,6 +79,8 @@ pub struct Machine {
     ht: u32,
     //
     store: Vec<float>,
+    //
+    active: u32,
 }
 
 
@@ -117,26 +122,7 @@ type Resources = Vec<Resource>;
 type ResourceKindId = usize;
 type ResourceKinds = Vec<ResourceKind>;
 
-#[wasm_bindgen]
-pub struct Universe {
-    machines: Vec<Machine>,
-    machines_stores: Vec<float>,
-    active_machines: HashMap<uuid, usize>,
-    inactive_machines: HashMap<uuid, usize>,
-    next_uuid: uuid,
-    resources: Resources,
-    active_resources: HashMap<uuid, usize>,
-    inactive_resources: HashMap<uuid, usize>,
-    active_resources_by_kind: HashMap<ResourceKindId, HashMap<uuid, usize> >,
-    available_resources_by_kind: HashMap<ResourceKindId, HashMap<uuid, usize> >,
-    resource_kinds: ResourceKinds,
-    resource_kinds_by_text_id: HashMap<String, ResourceKindId>,
-    base_diameter: float,
-    CELLS_COUNT_BY_SIDE: usize,
-    CELLS_COUNT: usize,
-    cells: Cells,
-    step: usize,
-}
+
 
 
 #[wasm_bindgen]
@@ -165,7 +151,11 @@ impl AddMachine {
 
 #[wasm_bindgen]
 impl Universe {
-    pub fn new(base_diameter: float) -> Universe {
+    pub fn new(
+        base_diameter: float,
+        consumption_rate: float,
+        replicate_threshold: float,
+    ) -> Universe {
         let CELLS_COUNT_BY_SIDE = (0.25 / base_diameter) as usize;
         let mut universe = Universe {
              machines: Vec::new(),
@@ -185,6 +175,8 @@ impl Universe {
              cells: Vec::new(),
              step: 0,
              machines_stores: Vec::new(),
+             consumption_rate: consumption_rate,
+             replicate_threshold: replicate_threshold,
         };
         for cell_id in 0..universe.CELLS_COUNT {
             universe.cells.push(Cell{
@@ -257,7 +249,7 @@ impl Universe {
         let i = self.machines.len();
         let mut store = Vec::new();
         for k in 0..self.resource_kinds.len() {
-            store.push(0.0);
+            store.push(0.5);
         }
         self.machines.push(Machine{
             u: u,
@@ -270,16 +262,55 @@ impl Universe {
             t: None,
             ht: 0,
             store: store,
+            active: 1,
         });
         self.active_machines.insert(u, i);
         u
     }
+}
 
 
+impl Universe {
+    pub fn add_machine_3(&mut self, r: & Replication) -> uuid {
+        let u = self.new_uuid();
+        let i = self.machines.len();
+        self.machines.push(Machine{
+            u: u,
+            i: i,
+            op: r.position,
+            p: r.position,
+            pn: r.position,
+            d: self.base_diameter,
+            m: 1.0,
+            t: None,
+            ht: 0,
+            store: r.store.clone(),
+            active: 1,
+        });
+        self.active_machines.insert(u, i);
+        u
+    }
+}
+
+
+#[wasm_bindgen]
+impl Universe {
     pub fn delete_machine(&mut self, u: uuid) {
         let i = self.active_machines[&u];
+        match self.machines[i].t {
+            Some(target) => {
+                let ressource = &self.resources[ target ];
+                let kind = ressource.k;
+                let cell_id = cell_id(ressource.p, self.CELLS_COUNT_BY_SIDE);
+                self.cells.get_mut(cell_id).unwrap().available_resources_by_kind.get_mut(&kind).unwrap().insert(ressource.u, ressource.i);
+                self.available_resources_by_kind.get_mut(&kind).unwrap().insert(ressource.u, ressource.i);
+            }
+            None => {}
+        }
         self.active_machines.remove(&u);
         self.inactive_machines.insert(u, i);
+        self.machines[i].active = 0;
+        self.machines[i].t = None;
     }
 }
 
@@ -294,7 +325,7 @@ pub fn closest_available_resource_all_full_scan(
     let mut d_sqrd_min = f32::INFINITY;
         for kind in resource_kinds {
             let kind_u = kind.u;
-            for (u, i) in available_resources_by_kind[&kind_u].iter() {
+            for (_, i) in available_resources_by_kind[&kind_u].iter() {
                 let resource = & resources[*i];
                 let d_sqrd = distance_squared(&machine.p, &resource.p);
                 if d_sqrd < d_sqrd_min {
@@ -346,23 +377,20 @@ pub fn find_target(
     CELLS_COUNT_BY_SIDE: usize,
     cells: &mut Vec<Cell>,
 ) {
-
-    // let wanted_resources = resource_kinds.iter().enumerate()
-    //     //.map(|(i, v)| *v)
-    //     //.filter(|(i, v)| machine.store[i] < 1.0)
-    //     .collect();
-    let wanted_resources: Vec<&ResourceKind> = resource_kinds
-        .iter()
-        .filter(|k| machine.store[k.u] < 1.0)
-        // .cloned()
-        .collect();
-
-    // for i in 0..resource_kinds.len() {
-    //     if machine.store[0] < 1.0 {
-    //         wanted_resources.push( resource_kinds[i] );
-    //     }
-    // }
-
+    let wanted_resources: Vec<&ResourceKind> = {
+        let threshold_iter = 0.2;
+        let mut threshold = threshold_iter;
+        loop {
+            let prioritized_resources: Vec<&ResourceKind> = resource_kinds
+                .iter()
+                .filter(|k| machine.store[k.u] < threshold)
+                .collect();
+            if prioritized_resources.len() > 0 || threshold > 1.0 {
+                break prioritized_resources
+            }
+            threshold += threshold_iter;
+        }
+    };
     machine.t = match closest_available_resource_all_c9s(
         machine,
         &wanted_resources,
@@ -390,15 +418,6 @@ pub fn find_target(
         None => {}
     }
 }
-
-
-// pub fn resource_by_u<'a>(
-//     resources: &'a Vec<Resource>,
-//     active_resources: &'a HashMap<uuid, usize>,
-//     resource_u: uuid,
-// ) -> &'a Resource {
-//     &resources[active_resources[&resource_u] ]
-// }
 
 
 #[wasm_bindgen]
@@ -490,8 +509,65 @@ impl Universe {
         for i in self.active_machines.values() {
             let m1 = &mut self.machines[*i];
             for s in m1.store.iter_mut() {
-                *s *= 0.999;
+                *s -= self.consumption_rate;
+                *s = s.min(1.0);
             }
+        }
+    }
+}
+
+
+pub struct Replication {
+    position: Vector,
+    store: Vec<float>,
+}
+
+
+#[wasm_bindgen]
+impl Universe {
+    pub fn replicate(&mut self) {
+        let mut replications: Vec<Replication> = Vec::new();
+        for i in self.active_machines.values() {
+            let mut replicate = true;
+            let m1 = &mut self.machines[*i];
+            for s in &m1.store {
+                if *s < self.replicate_threshold {
+                    replicate = false;
+                    break;
+                }
+            }
+            if replicate {
+                for s in m1.store.iter_mut() {
+                    *s *= 0.5;
+                }
+                replications.push(Replication {
+                    position: m1.p.clone(),
+                    store: m1.store.clone()
+                });
+            }
+        }
+        for r in replications {
+            self.add_machine_3(&r);
+        }
+    }
+}
+
+
+#[wasm_bindgen]
+impl Universe {
+    pub fn deletes(&mut self) {
+        let mut deletes = Vec::new();
+        for i in self.active_machines.values() {
+            let m1 = &self.machines[*i];
+            for s in &m1.store {
+                if *s < 0.0 {
+                    deletes.push(m1.u);
+                    break;
+                }
+            }
+        }
+        for u in deletes {
+            self.delete_machine(u);
         }
     }
 }
@@ -664,6 +740,8 @@ impl Universe {
         self.grow_resources();
         self.collect_resources();
         self.consume_resources();
+        self.replicate();
+        self.deletes();
         self.update_targets();
         self.update_machines_stores();
         self.step += 1;
@@ -674,7 +752,11 @@ impl Universe {
 #[wasm_bindgen]
 impl Universe {
     pub fn reset(&mut self) {
-        *self = Universe::new(self.base_diameter);
+        *self = Universe::new(
+            self.base_diameter,
+            self.consumption_rate,
+            self.replicate_threshold,
+        );
     }
 }
 
