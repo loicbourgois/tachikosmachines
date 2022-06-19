@@ -1,6 +1,13 @@
 const ZOOM = 0.75;
 
 
+const new_canvas = (canvas_resolution, id='canvas') => {
+  const size = Math.min(document.documentElement.clientHeight, document.documentElement.clientWidth)
+  const size_2 = Math.max(document.documentElement.clientHeight, document.documentElement.clientWidth)
+  return `<canvas id="${id}" width="${size*canvas_resolution}px" height="${size*canvas_resolution}px"></canvas>`
+}
+
+
 const fill_text = (context, text, x, y) => {
   const size = 18
   const xx = context.canvas.width * x * ZOOM - text.length*16/3  ;
@@ -57,4 +64,5 @@ export {
   line,
   fill_text,
   clear,
+  new_canvas,
 }

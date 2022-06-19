@@ -28,7 +28,7 @@ const data = {
         x: 0.5,
         y: 0.5,
       },
-      d: 0.05,
+      d: 0.15,
       dests: new Array(6,{})
     }
   ]
@@ -54,12 +54,12 @@ const init = () => {
 }
 
 
-const speed = 0.25
+const speed = 0.125
 const tick = () => {
   data.doots[0].op.x = data.doots[0].p.x
   data.doots[0].op.y = data.doots[0].p.y
-  data.doots[0].p.x = Math.sin(performance.now()*0.002 *speed) * 0.25 + 0.5
-  data.doots[0].p.y = Math.cos(performance.now()*0.00095*speed) * 0.25 + 0.5
+  data.doots[0].p.x = Math.sin(performance.now()*0.005 *speed) * 0.25 + 0.5
+  data.doots[0].p.y = Math.cos(performance.now()*0.0095*speed) * 0.25 + 0.5
   data.doots[0].dir = direction(data.doots[0].op, data.doots[0].p)
   if (keep_ticking) {
     setTimeout(() => {
@@ -74,10 +74,6 @@ const render = (context) => {
   fill_rect(context, 0.5, 0.5, 1.0, 1.0, "#bb6")
 
 
-
-
-
-
   const p = data.doots[0].p
   const dir = data.doots[0].dir
   const d = data.doots[0].d
@@ -90,38 +86,17 @@ const render = (context) => {
   const color_body = "#9dd"
 
 
-  const oo = 0.5;
+  const oo = 0.3;
   const bases = [
-    rotate(translate(p, mul(dir, d*0.5)), p, -0.165),
-    rotate(translate(p, mul(dir, d*0.5)), p, -0.365),
-    rotate(translate(p, mul(dir, d*0.5)), p, -0.215),
-    rotate(translate(p, mul(dir, d*0.5)), p, 0.165),
-    rotate(translate(p, mul(dir, d*0.5)), p, 0.365),
-    rotate(translate(p, mul(dir, d*0.5)), p, 0.215),
+    rotate(translate(p, mul(dir, d*0.5)), p, -0.15),
+    rotate(translate(p, mul(dir, d*0.5)), p, -0.4),
+    rotate(translate(p, mul(dir, d*0.5)), p, -0.275),
+    rotate(translate(p, mul(dir, d*0.5)), p, 0.15),
+    rotate(translate(p, mul(dir, d*0.5)), p, 0.4),
+    rotate(translate(p, mul(dir, d*0.5)), p, 0.275),
   ]
-
-  //const dir_2 = rotate(dir, {x:0,y:0}, 0.125)
-  // const tr = translate(p, mul(dir, oo ))
-
-  const ideals = [
-    translate(bases[0], mul(direction(p,bases[0] ), d*oo)),
-    translate(bases[1], mul(direction(p,bases[1] ), d*oo)),
-    translate(bases[2], mul(direction(p,bases[2] ), d*oo)),
-    translate(bases[3], mul(direction(p,bases[3] ), d*oo)),
-    translate(bases[4], mul(direction(p,bases[4] ), d*oo)),
-    translate(bases[5], mul(direction(p,bases[5] ), d*oo)),
-  ]
-
-  const ideals_front = [
-    translate(ideals[0], mul(dir, d*oo*0.75)),
-    translate(ideals[1], mul(dir, d*oo*0.75)),
-    translate(ideals[2], mul(dir, d*oo*0.25)),
-    translate(ideals[3], mul(dir, d*oo*0.75)),
-    translate(ideals[4], mul(dir, d*oo*0.75)),
-    translate(ideals[5], mul(dir, d*oo*0.25)),
-  ]
-
-
+  const ideals = bases.map(x=>translate(x, mul(direction(p,x), d*oo)))
+  const ideals_front = ideals.map(x=>translate(x, mul(dir, d*oo*0.75)))
   const signs = [
     1,
     1,
@@ -140,37 +115,32 @@ const render = (context) => {
 
 
   for (var i = 0; i < bases.length; i++) {
-    fill_circle(context, bases[i].x, bases[i].y, d*0.15, color_body )
-    //  fill_circle(context, ideals[i].x, ideals[i].y, d*0.2, "#90d8")
-
-    // line(context, bases[i].x, bases[i].y, ideals[i].x, ideals[i].y, 10, color_body)
-
-
+    fill_circle(context, bases[i].x, bases[i].y, d*0.17, color_body )
     const full_leg_length = d*oo*2
-
     if (
         !data.doots[0].dests[i]?.x
-        || distance_squared(data.doots[0].dests[i], ideals[i] ) > full_leg_length*full_leg_length*0.25
-        || distance_squared(data.doots[0].dests[i], p ) < d*d*0.25
-    ) {
+    ){
       data.doots[0].dests[i] = ideals_front[i]
     }
-
+    else if ( distance_squared(data.doots[0].dests[i], ideals[i] ) > full_leg_length*full_leg_length*0.2
+        || distance_squared(data.doots[0].dests[i], p ) < d*d*0.35
+    ) {
+      data.doots[0].dests[i] =  translate( ideals[i], mul( direction(ideals[i], data.doots[0].dests[i] ), full_leg_length*-0.3 ) )
+      //data.doots[0].dests[i] = ideals_front[i]
+    }
     fill_circle(context, data.doots[0].dests[i].x, data.doots[0].dests[i].y, d*0.2, "#90d8")
     fill_circle(context, data.doots[0].dests[i].x, data.doots[0].dests[i].y, d*0.1, color_body)
-    //line(context, bases[i].x, bases[i].y, data.doots[0].dests[i].x, data.doots[0].dests[i].y, 10, color_body)
+    //const elbow = angled( bases[i], data.doots[0].dests[i], full_leg_length, signs[i] )
 
-    const elbow = angled( bases[i], data.doots[0].dests[i], full_leg_length, signs[i] )
+    const elbow = {
+      x: (ideals[i].x*1.0 + data.doots[0].dests[i].x + bases[i].x ) / 3.0,
+      y: (ideals[i].y*1.0 + data.doots[0].dests[i].y + bases[i].y ) / 3.0,
+    }
+
     fill_circle(context, elbow.x, elbow.y, d*0.1, color_body)
-
-    line(context, bases[i].x, bases[i].y, elbow.x, elbow.y, 20, color_body)
-    line(context, elbow.x, elbow.y, data.doots[0].dests[i].x, data.doots[0].dests[i].y, 14, color_body)
-//fill_circle(context, ideals[i].x, ideals[i].y, d*0.1, color_body)
-
-    //fill_circle(context, ideals[i].x, ideals[i].y, full_leg_length, "#90d5")
-    //
-    // fill_circle(context, ideals_front[i].x, ideals_front[i].y, d*0.2, color_body)
-
+    line(context, bases[i].x, bases[i].y, elbow.x, elbow.y, d*200, color_body)
+    line(context, elbow.x, elbow.y, data.doots[0].dests[i].x, data.doots[0].dests[i].y, d*200, color_body)
+    // fill_circle(context, ideals[i].x, ideals[i].y, full_leg_length, "#90d5")
   }
 
 
